@@ -259,7 +259,7 @@ export default function AppointmentsPage() {
                         <div>
                           <p className="text-sm font-medium text-foreground">Payment Completed</p>
                           <p className="text-xs text-muted-foreground">
-                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(paymentsMap[appointment.id].amount)}
+                            ₱{parseFloat(paymentsMap[appointment.id].amount).toFixed(2)}
                           </p>
                         </div>
                       </div>
@@ -276,7 +276,7 @@ export default function AppointmentsPage() {
                         <div>
                           <p className="text-sm font-medium text-foreground">Payment Pending</p>
                           <p className="text-xs text-muted-foreground">
-                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(appointment.doctor.consultation_fee)}
+                            ₱{parseFloat(appointment.doctor.consultation_fee).toFixed(2)}
                           </p>
                         </div>
                       </div>

@@ -121,11 +121,9 @@ function PaymentsContent() {
     }
   }
 
-  const formatCurrency = (amount: number, currency: string = 'USD') => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: currency
-    }).format(amount)
+  const formatCurrency = (amount: number, currency: string = 'PHP') => {
+    // Always format as PHP (Philippine Peso)
+    return `₱${parseFloat(amount).toFixed(2)}`
   }
 
   const formatDate = (dateString: string) => {

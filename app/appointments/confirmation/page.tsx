@@ -103,8 +103,8 @@ function ConfirmationPageContent() {
       const paymentData = {
         appointment_id: appointment.id,
         amount: doctorFee,
-        currency: 'USD',
-        payment_method: 'stripe', // or 'credit_card', 'paypal', etc.
+        currency: 'PHP',
+        payment_method: 'gcash', // GCash or PayMaya only
         transaction_id: `txn_${Date.now()}`,
         payment_intent_id: `pi_${Date.now()}`,
         receipt_url: `https://example.com/receipts/${appointment.id}`,
@@ -264,7 +264,7 @@ function ConfirmationPageContent() {
                     <div>
                       <p className="font-semibold text-foreground">Payment Completed</p>
                       <p className="text-sm text-muted-foreground">
-                        {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(payment.amount)}
+                        ₱{parseFloat(payment.amount).toFixed(2)}
                       </p>
                     </div>
                   </div>
@@ -290,7 +290,7 @@ function ConfirmationPageContent() {
                   <div>
                     <p className="text-sm text-muted-foreground">Consultation Fee</p>
                     <p className="text-2xl font-bold text-foreground">
-                      {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(doctorFee)}
+                      ₱{parseFloat(doctorFee).toFixed(2)}
                     </p>
                   </div>
                   <CreditCard className="w-8 h-8 text-muted-foreground" />

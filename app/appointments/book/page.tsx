@@ -656,7 +656,7 @@ function BookAppointmentPageContent() {
                         <span className="text-lg font-semibold text-foreground">Total Amount</span>
                         <span className="text-2xl font-bold text-primary">
                           {selectedDoctor?.consultation_fee 
-                            ? `₱${selectedDoctor.consultation_fee.toFixed(2)}`
+                            ? `₱${parseFloat(selectedDoctor.consultation_fee).toFixed(2)}`
                             : 'N/A'}
                         </span>
                       </div>
