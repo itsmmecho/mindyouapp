@@ -706,7 +706,15 @@ function VideoCallContent() {
       socketRef.current.disconnect()
     }
     
-    router.push("/dashboard")
+    // Redirect based on user role
+    const userRole = userData?.role || 'user'
+    if (userRole === 'doctor') {
+      router.push("/doctor-dashboard")
+    } else if (userRole === 'admin') {
+      router.push("/doctor")
+    } else {
+      router.push("/dashboard")
+    }
   }
 
   const toggleFullscreen = () => {
