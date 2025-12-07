@@ -381,6 +381,20 @@ export const api = {
     });
   },
 
+  // Get payment progress
+  async getPaymentProgress(paymentId: string) {
+    return this.request(`/api/payments/${paymentId}/progress`, {
+      method: 'GET',
+    });
+  },
+
+  // Get payment timeline
+  async getPaymentTimeline(paymentId: string) {
+    return this.request(`/api/payments/${paymentId}/timeline`, {
+      method: 'GET',
+    });
+  },
+
   // Cancel payment
   async cancelPayment(paymentId: string, reason?: string) {
     return this.request(`/api/payments/${paymentId}/cancel`, {

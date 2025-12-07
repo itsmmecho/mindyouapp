@@ -43,6 +43,7 @@ function BookAppointmentPageContent() {
   const [paymentDetails, setPaymentDetails] = useState<any>(null)
   const [paymentId, setPaymentId] = useState<string | null>(null)
   const [checkingPayment, setCheckingPayment] = useState(false)
+  const [paymentProgress, setPaymentProgress] = useState<any>(null)
 
   useEffect(() => {
     const fetchDoctors = async () => {
@@ -202,6 +203,10 @@ function BookAppointmentPageContent() {
     try {
       const response = await api.verifyPayment(paymentId)
       
+      // Also fetch payment progress
+      const progressResponse = await api.getPaymentProgress(paymentId)
+      setPaymentProgress(progressResponse.data)
+      
       if (response.data.payment_status === 'completed') {
         setPaymentCompleted(true)
         // Redirect to confirmation page after a short delay
@@ -216,6 +221,22 @@ function BookAppointmentPageContent() {
     }
   }
 
+  // Fetch payment progress when payment is initialized
+  useEffect(() => {
+    const fetchPaymentProgress = async () => {
+      if (paymentId && paymentInitialized) {
+        try {
+          const response = await api.getPaymentProgress(paymentId)
+          setPaymentProgress(response.data)
+        } catch (err) {
+          console.error('Error fetching payment progress:', err)
+        }
+      }
+    }
+
+    fetchPaymentProgress()
+  }, [paymentId, paymentInitialized])
+
   // Auto-check payment status every 5 seconds when payment is initialized
   useEffect(() => {
     if (paymentInitialized && paymentId && !paymentCompleted) {
@@ -224,6 +245,15 @@ function BookAppointmentPageContent() {
         setCheckingPayment(true)
         try {
           const response = await api.verifyPayment(paymentId)
+          
+          // Also fetch payment progress
+          try {
+            const progressResponse = await api.getPaymentProgress(paymentId)
+            setPaymentProgress(progressResponse.data)
+          } catch (progressErr) {
+            console.error('Error fetching payment progress:', progressErr)
+          }
+          
           if (response.data.payment_status === 'completed') {
             setPaymentCompleted(true)
             setTimeout(() => {
@@ -485,6 +515,72 @@ function BookAppointmentPageContent() {
                 {error && (
                   <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg mb-6">
                     <p className="text-sm text-destructive">{error}</p>
+                  </div>
+                )}
+
+                {/* Payment Progress Indicator */}
+                {paymentProgress && (
+                  <div className="bg-muted/50 rounded-lg p-6 mb-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="font-semibold text-foreground">Payment Progress</h4>
+                      <span className="text-sm font-medium text-primary">
+                        {paymentProgress.progress_percentage}%
+                      </span>
+                    </div>
+                    {/* Progress Bar */}
+                    <div className="w-full bg-muted rounded-full h-2 mb-4">
+                      <div
+                        className="bg-primary h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${paymentProgress.progress_percentage}%` }}
+                      />
+                    </div>
+                    {/* Progress Stages */}
+                    <div className="space-y-3">
+                      {paymentProgress.stages.map((stage: any, index: number) => (
+                        <div
+                          key={index}
+                          className={`flex items-center gap-3 p-3 rounded-lg transition-all ${
+                            stage.status === 'completed'
+                              ? 'bg-green-500/10 border border-green-500/20'
+                              : stage.status === 'current' || stage.isCurrent
+                              ? 'bg-primary/10 border border-primary/20'
+                              : 'bg-muted/30 border border-border'
+                          }`}
+                        >
+                          <div
+                            className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                              stage.status === 'completed'
+                                ? 'bg-green-500 text-white'
+                                : stage.status === 'current' || stage.isCurrent
+                                ? 'bg-primary text-white'
+                                : 'bg-muted text-muted-foreground'
+                            }`}
+                          >
+                            {stage.status === 'completed' ? (
+                              <CheckCircle className="w-5 h-5" />
+                            ) : stage.status === 'current' || stage.isCurrent ? (
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                            ) : (
+                              <span className="text-xs font-bold">{index + 1}</span>
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <p
+                              className={`text-sm font-medium ${
+                                stage.status === 'completed'
+                                  ? 'text-green-500'
+                                  : stage.status === 'current' || stage.isCurrent
+                                  ? 'text-primary'
+                                  : 'text-muted-foreground'
+                              }`}
+                            >
+                              {stage.label}
+                            </p>
+                            <p className="text-xs text-muted-foreground">{stage.description}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 
