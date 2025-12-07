@@ -48,6 +48,8 @@ function VideoCallContent() {
   const [showChat, setShowChat] = useState(false)
   const [isConnecting, setIsConnecting] = useState(true)
   const [participants, setParticipants] = useState<Participant[]>([])
+  const [callStarted, setCallStarted] = useState(false)
+  const [waitingForDoctor, setWaitingForDoctor] = useState(false)
   
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const localStreamRef = useRef<MediaStream | null>(null)
@@ -60,6 +62,8 @@ function VideoCallContent() {
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
   const userId = userData?.id || userData?.email_address || `user-${Date.now()}`
   const userName = userData?.full_name || "User"
+  const userRole = userData?.role || 'user'
+  const isDoctor = userRole === 'doctor' || userRole === 'admin'
 
   // Initialize Socket.io connection
   useEffect(() => {
@@ -71,7 +75,7 @@ function VideoCallContent() {
 
     socket.on('connect', () => {
       console.log('Connected to signaling server')
-      socket.emit('join-room', appointmentId, userId, userName)
+      socket.emit('join-room', appointmentId, userId, userName, userRole)
       setIsConnecting(false)
       
       // Add local participant immediately (camera off by default)
@@ -92,17 +96,104 @@ function VideoCallContent() {
       })
     })
 
+    // Listen for call state
+    socket.on('call-state', (data: { isActive: boolean; startedBy: string | null }) => {
+      console.log('Call state received:', data)
+      if (data.isActive) {
+        setCallStarted(true)
+        setWaitingForDoctor(false)
+      } else if (!isDoctor) {
+        setWaitingForDoctor(true)
+        setCallStarted(false)
+      }
+    })
+
+    // Listen for call started event
+    socket.on('call-started', (data: { startedBy: string; startedByName: string }) => {
+      console.log('Call started by:', data.startedByName)
+      setCallStarted(true)
+      setWaitingForDoctor(false)
+      
+      // Initialize local stream when call starts
+      const initializeLocalStream = async () => {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: false,
+            audio: true,
+          })
+          
+          localStreamRef.current = stream
+          
+          if (stream.getAudioTracks().length > 0) {
+            setTimeout(() => {
+              setupAudioAnalyser(stream, 'local')
+            }, 200)
+          }
+        } catch (error) {
+          console.error("Error accessing media devices:", error)
+        }
+      }
+      
+      if (!localStreamRef.current) {
+        initializeLocalStream()
+      }
+    })
+
+    // Listen for call ended event
+    socket.on('call-ended', (data: { endedBy: string; endedByName: string }) => {
+      console.log('Call ended by:', data.endedByName)
+      setCallStarted(false)
+      if (!isDoctor) {
+        setWaitingForDoctor(true)
+      }
+      // Clear all participants except local
+      setParticipants(prev => prev.filter(p => p.isLocal))
+      // Close all peer connections
+      peerConnectionsRef.current.forEach(pc => pc.close())
+      peerConnectionsRef.current.clear()
+      remoteStreamsRef.current.clear()
+    })
+
+    // Listen for errors
+    socket.on('error', (data: { message: string }) => {
+      console.error('Socket error:', data.message)
+      alert(data.message)
+    })
+
     socket.on('room-users', (users: Array<{ socketId: string; userId: string; userName: string }>) => {
       console.log('Users in room:', users)
+      
       // Initialize connections with existing users
-      users.forEach(user => {
-        createPeerConnection(user.socketId, user.userId, user.userName, true)
-      })
+      // Wait for local stream to be ready before creating peer connections
+      const initializeConnections = async () => {
+        // Wait a bit for local stream to initialize
+        let attempts = 0
+        while (!localStreamRef.current && attempts < 10) {
+          await new Promise(resolve => setTimeout(resolve, 200))
+          attempts++
+        }
+        
+        if (localStreamRef.current) {
+          users.forEach(user => {
+            // Only create connection if it doesn't exist
+            if (!peerConnectionsRef.current.has(user.socketId)) {
+              createPeerConnection(user.socketId, user.userId, user.userName, true)
+            }
+          })
+        } else {
+          console.warn('Local stream not ready, will retry when stream is available')
+        }
+      }
+      
+      // room-users is only sent when call is active, so we can proceed
+      initializeConnections()
     })
 
     socket.on('user-joined', (data: { socketId: string; userId: string; userName: string }) => {
       console.log('User joined:', data)
-      createPeerConnection(data.socketId, data.userId, data.userName, true)
+      // When a new user joins, they will receive 'room-users' and create connections
+      // We don't need to do anything here - wait for them to send us an offer
+      // The new user will be the initiator (they received room-users with our info)
     })
 
     socket.on('user-left', (data: { socketId: string; userId: string; userName: string }) => {
@@ -361,8 +452,24 @@ function VideoCallContent() {
   }, [participants.length]) // Re-run when participants change
 
   const createPeerConnection = async (targetSocketId: string, targetUserId: string, targetUserName: string, isInitiator: boolean) => {
+    // Wait for local stream if not available
     if (!localStreamRef.current) {
-      console.error('Local stream not available')
+      console.log('Waiting for local stream to be available...')
+      let attempts = 0
+      while (!localStreamRef.current && attempts < 20) {
+        await new Promise(resolve => setTimeout(resolve, 200))
+        attempts++
+      }
+      
+      if (!localStreamRef.current) {
+        console.error('Local stream not available after waiting')
+        return
+      }
+    }
+
+    // Check if connection already exists
+    if (peerConnectionsRef.current.has(targetSocketId)) {
+      console.log(`Peer connection to ${targetSocketId} already exists`)
       return
     }
 
@@ -377,26 +484,30 @@ function VideoCallContent() {
     peerConnectionsRef.current.set(targetSocketId, peerConnection)
 
     // Add local stream tracks to peer connection
-    localStreamRef.current.getTracks().forEach(track => {
-      if (localStreamRef.current) {
-        peerConnection.addTrack(track, localStreamRef.current)
-      }
-    })
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => {
+        if (track.readyState === 'live') {
+          peerConnection.addTrack(track, localStreamRef.current!)
+        }
+      })
+    }
 
     // Handle remote stream
     peerConnection.ontrack = (event) => {
-      console.log('Received remote stream from:', targetSocketId)
+      console.log(`✅ Received remote stream from ${targetSocketId} (${targetUserName})`)
+      console.log('Stream tracks:', event.streams[0].getTracks().map(t => ({ kind: t.kind, enabled: t.enabled, readyState: t.readyState })))
+      
       const remoteStream = event.streams[0]
       remoteStreamsRef.current.set(targetSocketId, remoteStream)
       
       // Setup audio analyser for voice detection immediately
       if (remoteStream.getAudioTracks().length > 0) {
         const audioTrack = remoteStream.getAudioTracks()[0]
-        if (audioTrack.enabled) {
+        if (audioTrack.enabled && audioTrack.readyState === 'live') {
           // Small delay to ensure stream is ready
           setTimeout(() => {
             setupAudioAnalyser(remoteStream, targetSocketId)
-          }, 100)
+          }, 200)
         }
       }
       
@@ -406,7 +517,12 @@ function VideoCallContent() {
         if (existing) {
           return prev.map(p => 
             p.socketId === targetSocketId 
-              ? { ...p, stream: remoteStream, isSpeaking: false }
+              ? { 
+                  ...p, 
+                  stream: remoteStream, 
+                  isSpeaking: false,
+                  isVideoOff: remoteStream.getVideoTracks().length === 0 || !remoteStream.getVideoTracks()[0].enabled
+                }
               : p
           )
         } else {
@@ -415,14 +531,19 @@ function VideoCallContent() {
             socketId: targetSocketId,
             name: targetUserName,
             isLocal: false,
-            isMuted: false,
-            isVideoOff: false,
+            isMuted: remoteStream.getAudioTracks().length === 0 || !remoteStream.getAudioTracks()[0].enabled,
+            isVideoOff: remoteStream.getVideoTracks().length === 0 || !remoteStream.getVideoTracks()[0].enabled,
             isSpeaking: false,
             stream: remoteStream,
             peerConnection
           }]
         }
       })
+      
+      // Force re-render by updating state
+      setTimeout(() => {
+        setParticipants(prev => [...prev])
+      }, 100)
     }
 
     // Handle ICE candidates
@@ -437,45 +558,85 @@ function VideoCallContent() {
 
     // Handle connection state changes
     peerConnection.onconnectionstatechange = () => {
-      console.log(`Connection state with ${targetSocketId}:`, peerConnection.connectionState)
-      if (peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'disconnected') {
-        removeParticipant(targetSocketId)
+      console.log(`Connection state with ${targetSocketId} (${targetUserName}):`, peerConnection.connectionState)
+      if (peerConnection.connectionState === 'connected') {
+        console.log(`✅ Successfully connected to ${targetUserName}`)
+      } else if (peerConnection.connectionState === 'failed') {
+        console.error(`❌ Connection failed with ${targetUserName}`)
+        // Try to restart ICE
+        try {
+          peerConnection.restartIce()
+        } catch (error) {
+          console.error('Error restarting ICE:', error)
+        }
+      } else if (peerConnection.connectionState === 'disconnected') {
+        console.warn(`⚠️ Connection disconnected with ${targetUserName}`)
       }
+    }
+    
+    // Handle ICE connection state
+    peerConnection.oniceconnectionstatechange = () => {
+      console.log(`ICE connection state with ${targetSocketId}:`, peerConnection.iceConnectionState)
     }
 
     // Create offer if initiator
     if (isInitiator) {
       try {
-        const offer = await peerConnection.createOffer()
+        // Wait a moment to ensure tracks are added
+        await new Promise(resolve => setTimeout(resolve, 100))
+        
+        const offer = await peerConnection.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true
+        })
         await peerConnection.setLocalDescription(offer)
+        console.log(`Created offer for ${targetSocketId} (${targetUserName})`)
         
         if (socketRef.current) {
           socketRef.current.emit('offer', {
             target: targetSocketId,
             offer: offer
           })
+          console.log(`Sent offer to ${targetSocketId}`)
         }
       } catch (error) {
-        console.error('Error creating offer:', error)
+        console.error(`Error creating offer for ${targetSocketId}:`, error)
       }
     }
   }
 
   const handleOffer = async (offer: RTCSessionDescriptionInit, senderSocketId: string, senderUserId: string, senderUserName: string) => {
-    await createPeerConnection(senderSocketId, senderUserId, senderUserName, false)
+    console.log(`Handling offer from ${senderSocketId} (${senderUserName})`)
+    
+    // Create peer connection if it doesn't exist (we're the answerer)
+    if (!peerConnectionsRef.current.has(senderSocketId)) {
+      await createPeerConnection(senderSocketId, senderUserId, senderUserName, false)
+    }
     
     const peerConnection = peerConnectionsRef.current.get(senderSocketId)
     if (peerConnection) {
-      await peerConnection.setRemoteDescription(new RTCSessionDescription(offer))
-      const answer = await peerConnection.createAnswer()
-      await peerConnection.setLocalDescription(answer)
-      
-      if (socketRef.current) {
-        socketRef.current.emit('answer', {
-          target: senderSocketId,
-          answer: answer
-        })
+      try {
+        // Set remote description first
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(offer))
+        console.log(`Set remote description for ${senderSocketId}`)
+        
+        // Create and send answer
+        const answer = await peerConnection.createAnswer()
+        await peerConnection.setLocalDescription(answer)
+        console.log(`Created answer for ${senderSocketId}`)
+        
+        if (socketRef.current) {
+          socketRef.current.emit('answer', {
+            target: senderSocketId,
+            answer: answer
+          })
+          console.log(`Sent answer to ${senderSocketId}`)
+        }
+      } catch (error) {
+        console.error(`Error handling offer from ${senderSocketId}:`, error)
       }
+    } else {
+      console.error(`Peer connection not found for ${senderSocketId}`)
     }
   }
 
@@ -488,8 +649,13 @@ function VideoCallContent() {
 
   const handleIceCandidate = async (candidate: RTCIceCandidateInit, senderSocketId: string) => {
     const peerConnection = peerConnectionsRef.current.get(senderSocketId)
-    if (peerConnection) {
-      await peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
+    if (peerConnection && candidate.candidate) {
+      try {
+        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
+        console.log(`Added ICE candidate from ${senderSocketId}`)
+      } catch (error) {
+        console.error(`Error adding ICE candidate from ${senderSocketId}:`, error)
+      }
     }
   }
 
@@ -688,6 +854,55 @@ function VideoCallContent() {
     }
   }
 
+  const handleStartCall = () => {
+    if (!isDoctor) {
+      alert('Only doctors can start the call')
+      return
+    }
+    
+    if (socketRef.current) {
+      socketRef.current.emit('start-call', appointmentId)
+      setCallStarted(true)
+    }
+  }
+
+  const handleEndCall = () => {
+    if (!isDoctor) {
+      alert('Only doctors can end the call')
+      return
+    }
+    
+    if (socketRef.current) {
+      socketRef.current.emit('end-call', appointmentId)
+    }
+    
+    // Close all peer connections
+    peerConnectionsRef.current.forEach((pc) => {
+      pc.close()
+    })
+    peerConnectionsRef.current.clear()
+    remoteStreamsRef.current.clear()
+
+    // Stop local stream
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop())
+    }
+
+    // Disconnect socket
+    if (socketRef.current) {
+      socketRef.current.disconnect()
+    }
+    
+    // Redirect based on user role
+    if (userRole === 'doctor') {
+      router.push("/doctor-dashboard")
+    } else if (userRole === 'admin') {
+      router.push("/doctor")
+    } else {
+      router.push("/dashboard")
+    }
+  }
+
   const handleLeaveCall = () => {
     // Close all peer connections
     peerConnectionsRef.current.forEach((pc) => {
@@ -707,7 +922,6 @@ function VideoCallContent() {
     }
     
     // Redirect based on user role
-    const userRole = userData?.role || 'user'
     if (userRole === 'doctor') {
       router.push("/doctor-dashboard")
     } else if (userRole === 'admin') {
@@ -742,6 +956,70 @@ function VideoCallContent() {
           <Loader2 className="w-12 h-12 text-primary animate-spin mx-auto mb-4" />
           <p className="text-foreground text-lg">Connecting to call...</p>
         </div>
+      </div>
+    )
+  }
+
+  // Show waiting screen for patients if call hasn't started
+  if (!callStarted && !isDoctor) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-background to-muted flex items-center justify-center p-4">
+        <Card className="w-full max-w-md p-8 text-center">
+          <div className="mb-6">
+            <Video className="w-16 h-16 text-primary mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-foreground mb-2">Waiting for Doctor</h2>
+            <p className="text-muted-foreground">
+              The doctor will start the call shortly. Please wait...
+            </p>
+          </div>
+          <div className="flex items-center justify-center gap-2 mb-6">
+            <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+            <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+            <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+          </div>
+          <Button
+            onClick={handleLeaveCall}
+            variant="outline"
+            className="w-full"
+          >
+            Leave Waiting Room
+          </Button>
+        </Card>
+      </div>
+    )
+  }
+
+  // Show start call screen for doctors if call hasn't started
+  if (!callStarted && isDoctor) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-background to-muted flex items-center justify-center p-4">
+        <Card className="w-full max-w-md p-8 text-center">
+          <div className="mb-6">
+            <Video className="w-16 h-16 text-primary mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-foreground mb-2">Start Video Call</h2>
+            <p className="text-muted-foreground">
+              Click the button below to start the video call. The patient will be notified and can join once you start.
+            </p>
+          </div>
+          <div className="flex gap-4">
+            <Button
+              onClick={handleStartCall}
+              className="flex-1 bg-primary hover:bg-primary/90"
+              size="lg"
+            >
+              <Video className="w-5 h-5 mr-2" />
+              Start Call
+            </Button>
+            <Button
+              onClick={handleLeaveCall}
+              variant="outline"
+              className="flex-1"
+              size="lg"
+            >
+              Cancel
+            </Button>
+          </div>
+        </Card>
       </div>
     )
   }
@@ -959,13 +1237,24 @@ function VideoCallContent() {
             </Button>
           </div>
 
-          {/* Center - Leave Call */}
-          <Button
-            onClick={handleLeaveCall}
-            className="w-14 h-14 rounded-full bg-red-500 hover:bg-red-600 text-white"
-          >
-            <PhoneOff className="w-6 h-6" />
-          </Button>
+          {/* Center - End/Leave Call */}
+          {isDoctor ? (
+            <Button
+              onClick={handleEndCall}
+              className="w-14 h-14 rounded-full bg-red-500 hover:bg-red-600 text-white"
+              title="End call (only doctors can end)"
+            >
+              <PhoneOff className="w-6 h-6" />
+            </Button>
+          ) : (
+            <Button
+              onClick={handleLeaveCall}
+              className="w-14 h-14 rounded-full bg-red-500 hover:bg-red-600 text-white"
+              title="Leave call"
+            >
+              <PhoneOff className="w-6 h-6" />
+            </Button>
+          )}
 
           {/* Right Controls */}
           <div className="flex items-center gap-2">
