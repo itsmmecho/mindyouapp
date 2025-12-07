@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -19,7 +19,7 @@ interface Doctor {
   is_verified: boolean
 }
 
-export default function BookAppointmentPage() {
+function BookAppointmentPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const doctorIdFromUrl = searchParams.get("doctorId")
@@ -403,5 +403,20 @@ export default function BookAppointmentPage() {
         </div>
       </main>
     </div>
+  )
+}
+
+export default function BookAppointmentPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-b from-background to-muted flex items-center justify-center">
+        <Card className="p-12 text-center">
+          <Loader2 className="w-8 h-8 text-primary animate-spin mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading...</p>
+        </Card>
+      </div>
+    }>
+      <BookAppointmentPageContent />
+    </Suspense>
   )
 }
