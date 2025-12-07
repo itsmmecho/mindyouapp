@@ -38,7 +38,8 @@ export default function ProvidersPage() {
       try {
         setLoading(true)
         setError(null)
-        const response = await api.getDoctors({ is_active: true })
+        // Fetch doctors from users table where role='doctor'
+        const response = await api.getDoctorsFromUsers({ is_active: true })
         setDoctors(response.data || [])
       } catch (err) {
         console.error('Error fetching doctors:', err)

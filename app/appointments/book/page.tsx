@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Heart, Calendar, Clock, ChevronLeft, ChevronRight, Loader2, CheckCircle } from "lucide-react"
 import { api } from "@/lib/api"
+import { getUserData } from "@/lib/auth"
 
 interface Doctor {
   id: string
@@ -22,6 +23,8 @@ export default function BookAppointmentPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const doctorIdFromUrl = searchParams.get("doctorId")
+  const userData = getUserData()
+  const userId = userData?.id || userData?.user_id
   
   const [step, setStep] = useState(1)
   const [selectedTherapist, setSelectedTherapist] = useState<string | null>(doctorIdFromUrl)
@@ -30,12 +33,15 @@ export default function BookAppointmentPage() {
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [doctors, setDoctors] = useState<Doctor[]>([])
   const [loading, setLoading] = useState(true)
+  const [isCreating, setIsCreating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchDoctors = async () => {
       try {
         setLoading(true)
-        const response = await api.getAvailableDoctors()
+        // Fetch doctors from users table where role='doctor'
+        const response = await api.getAvailableDoctorsFromUsers()
         setDoctors(response.data || [])
         
         // If doctorId is in URL, ensure it's selected
@@ -86,9 +92,59 @@ export default function BookAppointmentPage() {
     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))
   }
 
-  const handleConfirmBooking = () => {
-    if (selectedTherapist && selectedDate && selectedTime) {
-      router.push("/appointments/confirmation")
+  const convertTimeTo24Hour = (time12Hour: string): string => {
+    const [time, period] = time12Hour.split(' ')
+    const [hours, minutes] = time.split(':')
+    let hour24 = parseInt(hours)
+    
+    if (period === 'PM' && hour24 !== 12) {
+      hour24 += 12
+    } else if (period === 'AM' && hour24 === 12) {
+      hour24 = 0
+    }
+    
+    return `${hour24.toString().padStart(2, '0')}:${minutes}:00`
+  }
+
+  const formatDateForAPI = (day: string, month: Date): string => {
+    const year = month.getFullYear()
+    const monthNum = month.getMonth() + 1
+    return `${year}-${monthNum.toString().padStart(2, '0')}-${day.padStart(2, '0')}`
+  }
+
+  const handleConfirmBooking = async () => {
+    if (!selectedTherapist || !selectedDate || !selectedTime || !userId) {
+      setError("Please complete all fields")
+      return
+    }
+
+    setIsCreating(true)
+    setError(null)
+
+    try {
+      // Format date and time for API
+      const appointmentDate = formatDateForAPI(selectedDate, currentMonth)
+      const appointmentTime = convertTimeTo24Hour(selectedTime)
+
+      // Create the appointment
+      const appointmentData = {
+        user_id: userId,
+        doctor_id: selectedTherapist, // This is the user_id of the doctor (from users table)
+        appointment_date: appointmentDate,
+        appointment_time: appointmentTime,
+        duration_minutes: 60,
+        appointment_type: 'Video Call',
+        status: 'scheduled'
+      }
+
+      const response = await api.createAppointment(appointmentData)
+      
+      // Redirect to confirmation page with appointment ID
+      router.push(`/appointments/confirmation?id=${response.data.id}`)
+    } catch (err) {
+      console.error('Error creating appointment:', err)
+      setError(err instanceof Error ? err.message : 'Failed to create appointment. Please try again.')
+      setIsCreating(false)
     }
   }
 
@@ -270,6 +326,11 @@ export default function BookAppointmentPage() {
         {step === 3 && (
           <Card className="p-8 mb-8">
             <h3 className="text-xl font-semibold text-foreground mb-6">Booking Summary</h3>
+            {error && (
+              <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg mb-6">
+                <p className="text-sm text-destructive">{error}</p>
+              </div>
+            )}
             <div className="space-y-4">
               <div className="flex items-center gap-3 pb-4 border-b border-border">
                 <Heart className="w-5 h-5 text-primary" />
@@ -324,8 +385,19 @@ export default function BookAppointmentPage() {
             </Button>
           )}
           {step === 3 && (
-            <Button onClick={handleConfirmBooking} className="bg-primary hover:bg-primary/90">
-              Confirm Booking
+            <Button 
+              onClick={handleConfirmBooking} 
+              disabled={isCreating || !userId}
+              className="bg-primary hover:bg-primary/90"
+            >
+              {isCreating ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Creating Appointment...
+                </>
+              ) : (
+                'Confirm Booking'
+              )}
             </Button>
           )}
         </div>

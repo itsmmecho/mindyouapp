@@ -2,27 +2,33 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { isAuthenticated } from "@/lib/auth"
+import { isAuthenticated, getUserData } from "@/lib/auth"
 
-interface ProtectedRouteProps {
+interface DoctorProtectedRouteProps {
   children: React.ReactNode
 }
 
-export default function ProtectedRoute({ children }: ProtectedRouteProps) {
+export default function DoctorProtectedRoute({ children }: DoctorProtectedRouteProps) {
   const router = useRouter()
   const [isChecking, setIsChecking] = useState(true)
-  const [isAuth, setIsAuth] = useState(false)
+  const [isAuthorized, setIsAuthorized] = useState(false)
 
   useEffect(() => {
-    // Check authentication status
+    // Check authentication and doctor role
     const checkAuth = () => {
       const authenticated = isAuthenticated()
-      setIsAuth(authenticated)
+      const userData = getUserData()
+      const isDoctor = userData?.role === 'doctor'
+
+      setIsAuthorized(authenticated && isDoctor)
       setIsChecking(false)
 
       if (!authenticated) {
         // Redirect to login if not authenticated
         router.push("/login")
+      } else if (!isDoctor) {
+        // Redirect to dashboard if not doctor
+        router.push("/dashboard")
       }
     }
 
@@ -35,22 +41,17 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Checking authentication...</p>
+          <p className="text-muted-foreground">Checking authorization...</p>
         </div>
       </div>
     )
   }
 
-  // Only render children if authenticated
-  if (!isAuth) {
+  // Only render children if authorized
+  if (!isAuthorized) {
     return null
   }
 
   return <>{children}</>
 }
-
-
-
-
-
 

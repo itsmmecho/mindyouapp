@@ -61,7 +61,8 @@ function DashboardContent() {
     const fetchAvailableDoctors = async () => {
       try {
         setLoadingDoctors(true)
-        const response = await api.getAvailableDoctors()
+        // Fetch doctors from users table where role='doctor'
+        const response = await api.getAvailableDoctorsFromUsers()
         setAvailableDoctors(response.data || [])
       } catch (error) {
         console.error('Error fetching available doctors:', error)
@@ -79,8 +80,23 @@ function DashboardContent() {
       
       try {
         setLoadingAppointments(true)
+        // Fetch upcoming appointments using the API filter
         const response = await api.getUserAppointments(userId, { upcoming: true })
-        setUpcomingAppointments(response.data || [])
+        let appointments = response.data || []
+        
+        // Filter out completed and cancelled appointments
+        appointments = appointments.filter((apt: Appointment) => 
+          apt.status !== 'completed' && apt.status !== 'cancelled'
+        )
+        
+        // Sort appointments by date and time (earliest first)
+        appointments.sort((a: Appointment, b: Appointment) => {
+          const dateA = new Date(`${a.appointment_date}T${a.appointment_time}`)
+          const dateB = new Date(`${b.appointment_date}T${b.appointment_time}`)
+          return dateA.getTime() - dateB.getTime()
+        })
+        
+        setUpcomingAppointments(appointments)
       } catch (error) {
         console.error('Error fetching appointments:', error)
       } finally {

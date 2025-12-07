@@ -36,7 +36,7 @@ export default function LoginPage() {
         return
       }
 
-      // Call the login API
+      // Login using users table (handles all roles: user, doctor, admin)
       const response = await api.login({
         email_address: email,
         password: password,
@@ -50,8 +50,15 @@ export default function LoginPage() {
         }
       }
 
-      // Success - redirect to dashboard
-      router.push("/dashboard")
+      // Success - redirect based on user role
+      const userRole = response.data?.role || 'user'
+      if (userRole === 'admin') {
+        router.push("/doctor")
+      } else if (userRole === 'doctor') {
+        router.push("/doctor-dashboard")
+      } else {
+        router.push("/dashboard")
+      }
     } catch (err) {
       // Handle API errors
       if (err instanceof Error) {

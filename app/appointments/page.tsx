@@ -55,7 +55,8 @@ export default function AppointmentsPage() {
     const fetchAvailableDoctors = async () => {
       try {
         setLoadingDoctors(true)
-        const response = await api.getAvailableDoctors()
+        // Fetch doctors from users table where role='doctor'
+        const response = await api.getAvailableDoctorsFromUsers()
         setAvailableDoctors(response.data || [])
       } catch (error) {
         console.error('Error fetching available doctors:', error)
@@ -73,18 +74,47 @@ export default function AppointmentsPage() {
       
       try {
         setLoadingAppointments(true)
-        const response = await api.getUserAppointments(userId)
-        const allAppointments = response.data || []
         
-        const today = new Date().toISOString().split('T')[0]
-        const upcoming = allAppointments.filter((apt: Appointment) => 
-          apt.appointment_date >= today && apt.status !== 'completed' && apt.status !== 'cancelled'
-        )
-        const past = allAppointments.filter((apt: Appointment) => 
-          apt.appointment_date < today || apt.status === 'completed'
+        // Fetch upcoming appointments using the API filter
+        const upcomingResponse = await api.getUserAppointments(userId, { 
+          upcoming: true 
+        })
+        let upcomingAppointments = upcomingResponse.data || []
+        
+        // Filter out completed and cancelled appointments from upcoming
+        upcomingAppointments = upcomingAppointments.filter((apt: Appointment) => 
+          apt.status !== 'completed' && apt.status !== 'cancelled'
         )
         
-        setAppointments(upcoming)
+        // Sort upcoming appointments by date and time (earliest first)
+        upcomingAppointments.sort((a: Appointment, b: Appointment) => {
+          const dateA = new Date(`${a.appointment_date}T${a.appointment_time}`)
+          const dateB = new Date(`${b.appointment_date}T${b.appointment_time}`)
+          return dateA.getTime() - dateB.getTime()
+        })
+        
+        // Fetch all appointments to get past ones
+        const allResponse = await api.getUserAppointments(userId)
+        const allAppointments = allResponse.data || []
+        
+        const today = new Date()
+        today.setHours(0, 0, 0, 0)
+        
+        // Filter past appointments (before today or completed/cancelled)
+        const past = allAppointments.filter((apt: Appointment) => {
+          const aptDate = new Date(apt.appointment_date)
+          aptDate.setHours(0, 0, 0, 0)
+          return aptDate < today || apt.status === 'completed' || apt.status === 'cancelled'
+        })
+        
+        // Sort past appointments by date and time (most recent first)
+        past.sort((a: Appointment, b: Appointment) => {
+          const dateA = new Date(`${a.appointment_date}T${a.appointment_time}`)
+          const dateB = new Date(`${b.appointment_date}T${b.appointment_time}`)
+          return dateB.getTime() - dateA.getTime()
+        })
+        
+        setAppointments(upcomingAppointments)
         setPastAppointments(past)
       } catch (error) {
         console.error('Error fetching appointments:', error)

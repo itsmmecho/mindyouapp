@@ -67,6 +67,17 @@ export const api = {
     });
   },
 
+  // Doctor login
+  async doctorLogin(credentials: {
+    email_address: string;
+    password: string;
+  }) {
+    return this.request('/api/doctors/login', {
+      method: 'POST',
+      body: JSON.stringify(credentials),
+    });
+  },
+
   // Get all doctors
   async getDoctors(filters?: {
     specialization?: string;
@@ -93,13 +104,43 @@ export const api = {
     });
   },
 
-  // Get available doctors (active and verified)
+  // Get available doctors (active and verified) - from doctors table
   async getAvailableDoctors(specialization?: string) {
     const queryParams = new URLSearchParams();
     if (specialization) queryParams.append('specialization', specialization);
     
     const queryString = queryParams.toString();
     const endpoint = `/api/doctors/available${queryString ? `?${queryString}` : ''}`;
+    
+    return this.request(endpoint, {
+      method: 'GET',
+    });
+  },
+
+  // Get available doctors from users table (role='doctor')
+  async getAvailableDoctorsFromUsers(specialization?: string) {
+    const queryParams = new URLSearchParams();
+    if (specialization) queryParams.append('specialization', specialization);
+    
+    const queryString = queryParams.toString();
+    const endpoint = `/api/users/doctors/available${queryString ? `?${queryString}` : ''}`;
+    
+    return this.request(endpoint, {
+      method: 'GET',
+    });
+  },
+
+  // Get all doctors from users table (role='doctor')
+  async getDoctorsFromUsers(filters?: {
+    specialization?: string;
+    is_active?: boolean;
+  }) {
+    const queryParams = new URLSearchParams();
+    if (filters?.specialization) queryParams.append('specialization', filters.specialization);
+    if (filters?.is_active !== undefined) queryParams.append('is_active', String(filters.is_active));
+    
+    const queryString = queryParams.toString();
+    const endpoint = `/api/users/doctors${queryString ? `?${queryString}` : ''}`;
     
     return this.request(endpoint, {
       method: 'GET',
@@ -114,6 +155,34 @@ export const api = {
     
     const queryString = queryParams.toString();
     const endpoint = `/api/appointments/user/${userId}${queryString ? `?${queryString}` : ''}`;
+    
+    return this.request(endpoint, {
+      method: 'GET',
+    });
+  },
+
+  // Get appointments for a doctor (by doctor_id from doctors table)
+  async getDoctorAppointments(doctorId: string, filters?: { status?: string; upcoming?: boolean }) {
+    const queryParams = new URLSearchParams();
+    if (filters?.status) queryParams.append('status', filters.status);
+    if (filters?.upcoming !== undefined) queryParams.append('upcoming', String(filters.upcoming));
+    
+    const queryString = queryParams.toString();
+    const endpoint = `/api/appointments/doctor/${doctorId}${queryString ? `?${queryString}` : ''}`;
+    
+    return this.request(endpoint, {
+      method: 'GET',
+    });
+  },
+
+  // Get appointments for a doctor user (by user_id from users table where role='doctor')
+  async getDoctorUserAppointments(userId: string, filters?: { status?: string; upcoming?: boolean }) {
+    const queryParams = new URLSearchParams();
+    if (filters?.status) queryParams.append('status', filters.status);
+    if (filters?.upcoming !== undefined) queryParams.append('upcoming', String(filters.upcoming));
+    
+    const queryString = queryParams.toString();
+    const endpoint = `/api/appointments/doctor-user/${userId}${queryString ? `?${queryString}` : ''}`;
     
     return this.request(endpoint, {
       method: 'GET',
@@ -166,6 +235,39 @@ export const api = {
   async cancelAppointment(id: string) {
     return this.request(`/api/appointments/${id}`, {
       method: 'DELETE',
+    });
+  },
+
+  // Admin: Get all appointments
+  async getAllAppointments(filters?: { status?: string; upcoming?: boolean }) {
+    const queryParams = new URLSearchParams();
+    if (filters?.status) queryParams.append('status', filters.status);
+    if (filters?.upcoming !== undefined) queryParams.append('upcoming', String(filters.upcoming));
+    
+    const queryString = queryParams.toString();
+    const endpoint = `/api/appointments${queryString ? `?${queryString}` : ''}`;
+    
+    return this.request(endpoint, {
+      method: 'GET',
+    });
+  },
+
+  // Admin: Update doctor
+  async updateDoctor(id: string, updateData: {
+    full_name?: string;
+    phone_number?: string;
+    specialization?: string;
+    qualifications?: string;
+    bio?: string;
+    years_of_experience?: number;
+    consultation_fee?: number;
+    profile_image_url?: string;
+    is_active?: boolean;
+    is_verified?: boolean;
+  }) {
+    return this.request(`/api/doctors/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(updateData),
     });
   },
 };
