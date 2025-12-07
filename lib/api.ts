@@ -10,7 +10,7 @@ const normalizeBaseUrl = (url: string): string => {
 
 export const api = {
   baseUrl: API_BASE_URL,
-  
+   
   async request(endpoint: string, options: RequestInit = {}) {
     // Ensure endpoint starts with / and base URL doesn't end with /
     const baseUrl = normalizeBaseUrl(API_BASE_URL);
