@@ -278,5 +278,132 @@ export const api = {
       body: JSON.stringify(updateData),
     });
   },
+
+  // ========== PATIENT PAYMENT METHODS ==========
+  // Get all payments for authenticated patient
+  async getPatientPayments(filters?: {
+    status?: string;
+    start_date?: string;
+    end_date?: string;
+    limit?: number;
+    offset?: number;
+  }) {
+    const queryParams = new URLSearchParams();
+    if (filters?.status) queryParams.append('status', filters.status);
+    if (filters?.start_date) queryParams.append('start_date', filters.start_date);
+    if (filters?.end_date) queryParams.append('end_date', filters.end_date);
+    if (filters?.limit) queryParams.append('limit', String(filters.limit));
+    if (filters?.offset) queryParams.append('offset', String(filters.offset));
+    
+    const queryString = queryParams.toString();
+    const endpoint = `/api/payments/patient${queryString ? `?${queryString}` : ''}`;
+    
+    return this.request(endpoint, {
+      method: 'GET',
+    });
+  },
+
+  // Get payment statistics for patient
+  async getPatientPaymentStats(filters?: {
+    start_date?: string;
+    end_date?: string;
+  }) {
+    const queryParams = new URLSearchParams();
+    if (filters?.start_date) queryParams.append('start_date', filters.start_date);
+    if (filters?.end_date) queryParams.append('end_date', filters.end_date);
+    
+    const queryString = queryParams.toString();
+    const endpoint = `/api/payments/patient/stats${queryString ? `?${queryString}` : ''}`;
+    
+    return this.request(endpoint, {
+      method: 'GET',
+    });
+  },
+
+  // Get payment history for patient
+  async getPatientPaymentHistory(filters?: {
+    status?: string;
+    payment_method?: string;
+    start_date?: string;
+    end_date?: string;
+    limit?: number;
+    offset?: number;
+    sort_by?: string;
+    sort_order?: 'asc' | 'desc';
+  }) {
+    const queryParams = new URLSearchParams();
+    if (filters?.status) queryParams.append('status', filters.status);
+    if (filters?.payment_method) queryParams.append('payment_method', filters.payment_method);
+    if (filters?.start_date) queryParams.append('start_date', filters.start_date);
+    if (filters?.end_date) queryParams.append('end_date', filters.end_date);
+    if (filters?.limit) queryParams.append('limit', String(filters.limit));
+    if (filters?.offset) queryParams.append('offset', String(filters.offset));
+    if (filters?.sort_by) queryParams.append('sort_by', filters.sort_by);
+    if (filters?.sort_order) queryParams.append('sort_order', filters.sort_order);
+    
+    const queryString = queryParams.toString();
+    const endpoint = `/api/payments/patient/history${queryString ? `?${queryString}` : ''}`;
+    
+    return this.request(endpoint, {
+      method: 'GET',
+    });
+  },
+
+  // Get payment by appointment ID
+  async getPaymentByAppointmentId(appointmentId: string) {
+    return this.request(`/api/payments/appointment/${appointmentId}`, {
+      method: 'GET',
+    });
+  },
+
+  // Initialize payment (create payment record and get payment details)
+  async initializePayment(paymentData: {
+    appointment_id: string;
+    payment_method: 'gcash' | 'paymaya';
+  }) {
+    return this.request('/api/payments/initialize', {
+      method: 'POST',
+      body: JSON.stringify(paymentData),
+    });
+  },
+
+  // Verify payment status
+  async verifyPayment(paymentId: string) {
+    return this.request(`/api/payments/${paymentId}/verify`, {
+      method: 'POST',
+    });
+  },
+
+  // Get payment status
+  async getPaymentStatus(paymentId: string) {
+    return this.request(`/api/payments/${paymentId}/status`, {
+      method: 'GET',
+    });
+  },
+
+  // Cancel payment
+  async cancelPayment(paymentId: string, reason?: string) {
+    return this.request(`/api/payments/${paymentId}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  // Create payment from patient side (legacy)
+  async createPaymentFromPatient(paymentData: {
+    appointment_id: string;
+    amount: number;
+    currency?: string;
+    payment_method: string;
+    transaction_id?: string;
+    payment_intent_id?: string;
+    receipt_url?: string;
+    metadata?: Record<string, any>;
+  }) {
+    return this.request('/api/payments/patient', {
+      method: 'POST',
+      body: JSON.stringify(paymentData),
+    });
+  },
 };
 

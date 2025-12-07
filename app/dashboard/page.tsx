@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Heart, Calendar, Clock, MapPin, LogOut, Settings, Bell, ChevronRight, Users, Loader2 } from "lucide-react"
+import { Heart, Calendar, Clock, MapPin, LogOut, Settings, Bell, ChevronRight, Users, Loader2, DollarSign } from "lucide-react"
 import ProtectedRoute from "@/components/protected-route"
 import { getUserData, clearAuth } from "@/lib/auth"
 import { useRouter } from "next/navigation"
@@ -203,6 +203,21 @@ function DashboardContent() {
               <p className="text-3xl font-bold text-foreground">{stat.value}</p>
             </Card>
           ))}
+        </div>
+
+        {/* Quick Actions */}
+        <div className="mb-8">
+          <Link href="/payments">
+            <Card className="p-6 bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20 hover:shadow-lg transition-all cursor-pointer">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground mb-2">Payment History</h3>
+                  <p className="text-sm text-muted-foreground">View your payment history and receipts</p>
+                </div>
+                <DollarSign className="w-12 h-12 text-primary" />
+              </div>
+            </Card>
+          </Link>
         </div>
 
         <div className="grid lg:grid-cols-3 gap-8">
