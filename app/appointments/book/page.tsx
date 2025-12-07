@@ -172,21 +172,29 @@ function BookAppointmentPageContent() {
     }
   }
 
-  // Validate CP number (Philippine phone number format)
+  // Validate CP number (Philippine phone number format - exactly 11 digits)
   const validateCpNumber = (number: string): boolean => {
     // Remove spaces, dashes, and other characters
-    const cleaned = number.replace(/[\s\-\(\)]/g, '')
+    const cleaned = number.replace(/[\s\-\(\)\+]/g, '')
     
-    // Philippine mobile numbers: 09XXXXXXXXX (10 digits) or +639XXXXXXXXX (13 digits)
-    const phMobileRegex = /^(09|\+639)[0-9]{9}$/
+    // Philippine mobile numbers: Must be exactly 11 digits starting with 09
+    // Format: 09XXXXXXXXX (11 digits total)
+    const phMobileRegex = /^09[0-9]{9}$/
     
     if (!cleaned) {
-      setCpNumberError('CP number is required')
+      setCpNumberError('Mobile number is required')
       return false
     }
     
+    // Check if it's exactly 11 digits
+    if (cleaned.length !== 11) {
+      setCpNumberError('Mobile number must be exactly 11 digits (e.g., 09123456789)')
+      return false
+    }
+    
+    // Check if it starts with 09 and has exactly 11 digits
     if (!phMobileRegex.test(cleaned)) {
-      setCpNumberError('Please enter a valid Philippine mobile number (09XXXXXXXXX)')
+      setCpNumberError('Mobile number must start with 09 and be exactly 11 digits')
       return false
     }
     
@@ -195,13 +203,18 @@ function BookAppointmentPageContent() {
   }
 
   const handleCpNumberChange = (value: string) => {
-    // Allow only numbers, +, spaces, dashes, and parentheses
-    const cleaned = value.replace(/[^\d\+\s\-\(\)]/g, '')
+    // Allow only numbers, limit to 11 digits
+    const cleaned = value.replace(/[^\d]/g, '').slice(0, 11)
     setCpNumber(cleaned)
     
     // Clear error when user starts typing
     if (cpNumberError) {
       setCpNumberError('')
+    }
+    
+    // Auto-validate as user types (if 11 digits entered)
+    if (cleaned.length === 11) {
+      validateCpNumber(cleaned)
     }
   }
 
@@ -860,7 +873,8 @@ function BookAppointmentPageContent() {
                       type="tel"
                       value={cpNumber}
                       onChange={(e) => handleCpNumberChange(e.target.value)}
-                      placeholder="09XXXXXXXXX"
+                      placeholder="09123456789"
+                      maxLength={11}
                       className={`w-full pl-10 pr-4 py-3 rounded-lg border-2 bg-background text-foreground ${
                         cpNumberError
                           ? 'border-destructive focus:border-destructive'
@@ -875,7 +889,7 @@ function BookAppointmentPageContent() {
                     </p>
                   )}
                   <p className="text-xs text-muted-foreground mt-2">
-                    Enter your {paymentMethod === 'gcash' ? 'GCash' : 'PayMaya'} registered mobile number (e.g., 09123456789)
+                    Enter your {paymentMethod === 'gcash' ? 'GCash' : 'PayMaya'} registered mobile number (11 digits, e.g., 09123456789)
                   </p>
                 </div>
 
