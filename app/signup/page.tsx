@@ -74,11 +74,7 @@ export default function SignupPage() {
         return
       }
 
-      if (Number(formData.age) < 3) {
-        setError("You must be at least 18 years old to register.")
-        setIsLoading(false)
-        return
-      }
+      
 
       if (formData.password.length < 8) {
         setError("Password must be at least 8 characters.")
