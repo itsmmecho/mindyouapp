@@ -48,6 +48,8 @@ function VideoCallContent() {
   const [showChat, setShowChat] = useState(false)
   const [isConnecting, setIsConnecting] = useState(true)
   const [participants, setParticipants] = useState<Participant[]>([])
+  const [callStarted, setCallStarted] = useState(false)
+  const [waitingForDoctor, setWaitingForDoctor] = useState(false)
   
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const localStreamRef = useRef<MediaStream | null>(null)
@@ -60,6 +62,8 @@ function VideoCallContent() {
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
   const userId = userData?.id || userData?.email_address || `user-${Date.now()}`
   const userName = userData?.full_name || "User"
+  const userRole = userData?.role || 'user'
+  const isDoctor = userRole === 'doctor' || userRole === 'admin'
 
   // Initialize Socket.io connection
   useEffect(() => {
@@ -71,38 +75,154 @@ function VideoCallContent() {
 
     socket.on('connect', () => {
       console.log('Connected to signaling server')
-      socket.emit('join-room', appointmentId, userId, userName)
+      console.log('Joining room with:', { appointmentId, userId, userName, userRole })
+      socket.emit('join-room', appointmentId, userId, userName, userRole)
       setIsConnecting(false)
       
       // Add local participant immediately (camera off by default)
-      setParticipants(prev => {
-        const existing = prev.find(p => p.isLocal)
-        if (!existing) {
-          return [{
-            id: userId,
-            socketId: socket.id,
-            name: userName,
-            isLocal: true,
-            isMuted: false,
-            isVideoOff: true, // Camera off by default
-            isSpeaking: false,
-          }]
+      if (socket.id) {
+        setParticipants(prev => {
+          const existing = prev.find(p => p.isLocal)
+          if (!existing) {
+            return [{
+              id: userId,
+              socketId: socket.id!,
+              name: userName,
+              isLocal: true,
+              isMuted: false,
+              isVideoOff: true, // Camera off by default
+              isSpeaking: false,
+            }]
+          }
+          return prev
+        })
+      }
+    })
+
+    // Listen for call state (sent when user joins room)
+    socket.on('call-state', (data: { isActive: boolean; startedBy: string | null }) => {
+      console.log('📞 Call state received:', data)
+      console.log('📞 Current user role:', userRole, 'isDoctor:', isDoctor)
+      
+      if (data.isActive) {
+        console.log('✅ Call is active, updating state...')
+        setCallStarted(true)
+        setWaitingForDoctor(false)
+        
+        // Initialize local stream if call is already active
+        const initializeLocalStream = async () => {
+          try {
+            if (!localStreamRef.current) {
+              const stream = await navigator.mediaDevices.getUserMedia({
+                video: false,
+                audio: true,
+              })
+              localStreamRef.current = stream
+              
+              if (stream.getAudioTracks().length > 0) {
+                setTimeout(() => {
+                  setupAudioAnalyser(stream, 'local')
+                }, 200)
+              }
+            }
+          } catch (error) {
+            console.error("Error accessing media devices:", error)
+          }
         }
-        return prev
-      })
+        
+        setTimeout(() => {
+          initializeLocalStream()
+        }, 500)
+      } else if (!isDoctor) {
+        console.log('⏳ Call not active, showing waiting screen for patient')
+        setWaitingForDoctor(true)
+        setCallStarted(false)
+      }
+    })
+
+    // Listen for call started event (broadcast to all users when doctor starts)
+    socket.on('call-started', (data: { startedBy: string; startedByName: string }) => {
+      console.log('🎬 Call started event received from:', data.startedByName)
+      setCallStarted(true)
+      setWaitingForDoctor(false)
+      
+      // Initialize local stream when call starts
+      const initializeLocalStream = async () => {
+        try {
+          if (!localStreamRef.current) {
+            console.log('🎬 Initializing local media stream...')
+            const stream = await navigator.mediaDevices.getUserMedia({
+              video: false,
+              audio: true,
+            })
+            localStreamRef.current = stream
+            console.log('🎬 Local stream initialized')
+            
+            if (stream.getAudioTracks().length > 0) {
+              setTimeout(() => {
+                setupAudioAnalyser(stream, 'local')
+              }, 200)
+            }
+          }
+        } catch (error) {
+          console.error("❌ Error accessing media devices:", error)
+        }
+      }
+      
+      setTimeout(() => {
+        initializeLocalStream()
+      }, 300)
+    })
+
+    // Listen for call ended event
+    socket.on('call-ended', (data: { endedBy: string; endedByName: string }) => {
+      console.log('Call ended by:', data.endedByName)
+      setCallStarted(false)
+      if (!isDoctor) {
+        setWaitingForDoctor(true)
+      }
+      // Clear all participants except local
+      setParticipants(prev => prev.filter(p => p.isLocal))
+      // Close all peer connections
+      peerConnectionsRef.current.forEach(pc => pc.close())
+      peerConnectionsRef.current.clear()
+      remoteStreamsRef.current.clear()
     })
 
     socket.on('room-users', (users: Array<{ socketId: string; userId: string; userName: string }>) => {
       console.log('Users in room:', users)
+      
       // Initialize connections with existing users
-      users.forEach(user => {
-        createPeerConnection(user.socketId, user.userId, user.userName, true)
-      })
+      // Wait for local stream to be ready before creating peer connections
+      const initializeConnections = async () => {
+        // Wait a bit for local stream to initialize
+        let attempts = 0
+        while (!localStreamRef.current && attempts < 10) {
+          await new Promise(resolve => setTimeout(resolve, 200))
+          attempts++
+        }
+        
+        if (localStreamRef.current) {
+          users.forEach(user => {
+            // Only create connection if it doesn't exist
+            if (!peerConnectionsRef.current.has(user.socketId)) {
+              createPeerConnection(user.socketId, user.userId, user.userName, true)
+            }
+          })
+        } else {
+          console.warn('Local stream not ready, will retry when stream is available')
+        }
+      }
+      
+      // room-users is only sent when call is active, so we can proceed
+      initializeConnections()
     })
 
     socket.on('user-joined', (data: { socketId: string; userId: string; userName: string }) => {
       console.log('User joined:', data)
-      createPeerConnection(data.socketId, data.userId, data.userName, true)
+      // When a new user joins, they will receive 'room-users' and create connections
+      // We don't need to do anything here - wait for them to send us an offer
+      // The new user will be the initiator (they received room-users with our info)
     })
 
     socket.on('user-left', (data: { socketId: string; userId: string; userName: string }) => {
@@ -761,6 +881,55 @@ function VideoCallContent() {
     }
   }
 
+  const handleStartCall = () => {
+    if (!isDoctor) {
+      alert('Only doctors can start the call')
+      return
+    }
+    
+    if (socketRef.current) {
+      socketRef.current.emit('start-call', appointmentId)
+      setCallStarted(true)
+    }
+  }
+
+  const handleEndCall = () => {
+    if (!isDoctor) {
+      alert('Only doctors can end the call')
+      return
+    }
+    
+    if (socketRef.current) {
+      socketRef.current.emit('end-call', appointmentId)
+    }
+    
+    // Close all peer connections
+    peerConnectionsRef.current.forEach((pc) => {
+      pc.close()
+    })
+    peerConnectionsRef.current.clear()
+    remoteStreamsRef.current.clear()
+
+    // Stop local stream
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop())
+    }
+
+    // Disconnect socket
+    if (socketRef.current) {
+      socketRef.current.disconnect()
+    }
+    
+    // Redirect based on user role
+    if (userRole === 'doctor') {
+      router.push("/doctor-dashboard")
+    } else if (userRole === 'admin') {
+      router.push("/doctor")
+    } else {
+      router.push("/dashboard")
+    }
+  }
+
   const handleLeaveCall = () => {
     // Close all peer connections
     peerConnectionsRef.current.forEach((pc) => {
@@ -780,7 +949,6 @@ function VideoCallContent() {
     }
     
     // Redirect based on user role
-    const userRole = userData?.role || 'user'
     if (userRole === 'doctor') {
       router.push("/doctor-dashboard")
     } else if (userRole === 'admin') {
@@ -815,6 +983,73 @@ function VideoCallContent() {
           <Loader2 className="w-12 h-12 text-primary animate-spin mx-auto mb-4" />
           <p className="text-foreground text-lg">Connecting to call...</p>
         </div>
+      </div>
+    )
+  }
+
+  // Show waiting screen for patients if call hasn't started
+  if (!callStarted && !isDoctor) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-background to-muted flex items-center justify-center p-4">
+        <Card className="w-full max-w-md p-8 text-center">
+          <div className="mb-6">
+            <Video className="w-16 h-16 text-primary mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-foreground mb-2">Waiting for Doctor</h2>
+            <p className="text-muted-foreground">
+              The doctor will start the call shortly. Please wait...
+            </p>
+            <p className="text-xs text-muted-foreground mt-2">
+              Check browser console (F12) for connection status
+            </p>
+          </div>
+          <div className="flex items-center justify-center gap-2 mb-6">
+            <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+            <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+            <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+          </div>
+          <Button
+            onClick={handleLeaveCall}
+            variant="outline"
+            className="w-full"
+          >
+            Leave Waiting Room
+          </Button>
+        </Card>
+      </div>
+    )
+  }
+
+  // Show start call screen for doctors if call hasn't started
+  if (!callStarted && isDoctor) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-background to-muted flex items-center justify-center p-4">
+        <Card className="w-full max-w-md p-8 text-center">
+          <div className="mb-6">
+            <Video className="w-16 h-16 text-primary mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-foreground mb-2">Start Video Call</h2>
+            <p className="text-muted-foreground">
+              Click the button below to start the video call. The patient will be notified and can join once you start.
+            </p>
+          </div>
+          <div className="flex gap-4">
+            <Button
+              onClick={handleStartCall}
+              className="flex-1 bg-primary hover:bg-primary/90"
+              size="lg"
+            >
+              <Video className="w-5 h-5 mr-2" />
+              Start Call
+            </Button>
+            <Button
+              onClick={handleLeaveCall}
+              variant="outline"
+              className="flex-1"
+              size="lg"
+            >
+              Cancel
+            </Button>
+          </div>
+        </Card>
       </div>
     )
   }
@@ -1079,13 +1314,24 @@ function VideoCallContent() {
             </Button>
           </div>
 
-          {/* Center - Leave Call */}
-          <Button
-            onClick={handleLeaveCall}
-            className="w-14 h-14 rounded-full bg-red-500 hover:bg-red-600 text-white"
-          >
-            <PhoneOff className="w-6 h-6" />
-          </Button>
+           {/* Center - End/Leave Call */}
+           {isDoctor ? (
+             <Button
+               onClick={handleEndCall}
+               className="w-14 h-14 rounded-full bg-red-500 hover:bg-red-600 text-white"
+               title="End call (only doctors can end)"
+             >
+               <PhoneOff className="w-6 h-6" />
+             </Button>
+           ) : (
+             <Button
+               onClick={handleLeaveCall}
+               className="w-14 h-14 rounded-full bg-red-500 hover:bg-red-600 text-white"
+               title="Leave call"
+             >
+               <PhoneOff className="w-6 h-6" />
+             </Button>
+           )}
 
           {/* Right Controls */}
           <div className="flex items-center gap-2">
