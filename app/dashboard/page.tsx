@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Heart, Calendar, Clock, MapPin, LogOut, Settings, Bell, ChevronRight, Users, Loader2, DollarSign } from "lucide-react"
+import { Heart, Calendar, Clock, MapPin, LogOut, Settings, Bell, ChevronRight, Users, Loader2,  } from "lucide-react"
 import { NotificationBell } from "@/components/NotificationBell"
 import ProtectedRoute from "@/components/protected-route"
 import { getUserData, clearAuth } from "@/lib/auth"
@@ -215,7 +215,8 @@ function DashboardContent() {
                   <h3 className="text-lg font-semibold text-foreground mb-2">Payment History</h3>
                   <p className="text-sm text-muted-foreground">View your payment history and receipts</p>
                 </div>
-                <DollarSign className="w-12 h-12 text-primary" />
+
+                <span className="text-primary font-bold text-xl">₱</span>
               </div>
             </Card>
           </Link>
